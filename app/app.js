@@ -12,7 +12,7 @@
     var CHECK = (set.check && set.check.name) || 'Readiness Check';
     var CHECK_N = (set.check && set.check.size) || 10, CHECK_EXTRA = (set.check && set.check.extra) || [];
     var PING = cfg.ping || '';
-    var bank = {}, Q = [], byId = {}, SECS = [], secOf = {}, S, cur = null, answered = null;
+    var bank = {}, Q = [], byId = {}, SECS = [], S, cur = null, answered = null;
 
     opt.banks.forEach(function (b) { b.questions.forEach(function (q) { bank[q.id] = q; }); });
     set.sections.forEach(function (sec) {
@@ -21,7 +21,7 @@
         var q = bank[id] ? { id: id, prompt: bank[id].prompt, choices: bank[id].choices, key: bank[id].key }
               : window.Review.templates[id] ? { id: id, template: true } : null;
         if (!q) { console.warn('unknown question id', id); return; }
-        q.sec = sec.code; byId[id] = q; secOf[id] = sec; Q.push(q);
+        q.sec = sec.code; byId[id] = q; Q.push(q);
       });
     });
     var secName = function (code) { var s = SECS.filter(function (x) { return x.code === code; })[0]; return s ? s.name : ''; };
@@ -444,7 +444,7 @@
         '<p>right this time through.<br>' + t.ok + ' of ' + t.n + ' mastered in this section.</p>' +
         '<div class="nav col">' +
         (t.miss ? '<button class="primary" id="redo">Redo the ' + t.miss + ' missed</button>' : '') +
-        (nx ? '<button' + (t.miss ? '' : ' class="primary"') + ' id="nextSec">Next weak section: ' + esc(nx.code + ' ' + nx.name) + ' →</button>' : '') +
+        (nx ? '<button' + (t.miss ? '' : ' class="primary"') + ' id="nextSec">Next: ' + esc(nx.code + ' ' + nx.name) + ' →</button>' : '') +
         '<button' + (t.miss || nx ? '' : ' class="primary"') + ' id="toSecs">Back to all sections</button></div>' +
         (!nx && !t.miss ? '<p class="small">Every question mastered. Nice work.</p>' : '') + '</div>';
       if ($('redo')) $('redo').onclick = function () { buildSection(S.topic); S.practice.queue = S.practice.queue.slice(0, t.miss); go(); draw(); window.scrollTo(0, 0); };
