@@ -404,12 +404,12 @@
     }
 
     // ---------- "Send my results" (opt-in, the only place a name is ever sent) ----------
-    var WHO = cfg.instructor || 'your instructor';
+    var WHO = cfg.instructor || 'my instructor';
     function sendBox(st) {
       if (!PING) return '';
       var sent = S.check.sent;
       return '<div class="send">' + (sent
-        ? '<p class="sent">✓ Sent to ' + esc(WHO) + ' as ' + esc(sent) + '</p>'
+        ? '<p class="sent">✓ Sent as ' + esc(sent) + '</p>'
         : '<button class="link" id="sendTog">Send my results to ' + esc(WHO) + '</button>' +
           '<div id="sendBox" class="hide"><div class="sendRow"><input id="sendName" placeholder="Your first and last name" autocomplete="name" value="' + esc(S.name || '') + '">' +
           '<button id="sendBtn">Send</button></div>' +
