@@ -113,7 +113,12 @@
 
     // ---------- math + graphs ----------
     function tex(el, text) {
-      el.textContent = text || '';
+      el.textContent = '';                 // **word** -> bold; everything else stays plain text (no HTML parsing)
+      String(text || '').split(/\*\*([^*]+?)\*\*/).forEach(function (part, i) {
+        if (!part) return;
+        if (i % 2) { var b = document.createElement('b'); b.textContent = part; el.appendChild(b); }
+        else el.appendChild(document.createTextNode(part));
+      });
       if (text && window.renderQuickGraphs) renderQuickGraphs(el);
       if (text && window.renderMathInElement) renderMathInElement(el, { delimiters: [
         { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false },

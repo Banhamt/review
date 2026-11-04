@@ -8,7 +8,7 @@
     var F = Math.round(c * x * x), d = r.pick([5, 8, 10, 12, 15, 20, 25]);
     need(F >= 50 && F <= 20000);
     return {
-      prompt: 'The cost of making $x$ units is $C(x)=' + poly([c, d, F]) + '$. How many units minimize the <b>average</b> cost?',
+      prompt: 'The cost of making $x$ units is $C(x)=' + poly([c, d, F]) + '$. How many units minimize the **average** cost?',
       answer: N(x) + ' units',
       wrong: [N(2 * x) + ' units', N(x / 2) + ' units', N(Math.round(Math.sqrt(F))) + ' units', N(10 * x) + ' units', N(F / x / 2) + ' units']
     };
