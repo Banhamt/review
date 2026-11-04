@@ -61,15 +61,6 @@
     };
   });
 
-  add('t-log10', function (r) {
-    var k = r.pick([1, 2, 3, 4, 5, 7]);
-    return {
-      prompt: 'Find the derivative of $y=' + coef(k) + '\\log_{10} x$.',
-      answer: "$y'=\\dfrac{" + k + '}{x\\ln(10)}$',
-      wrong: ["$y'=\\dfrac{" + k + '}{x}$', "$y'=\\dfrac{" + k + '\\ln(10)}{x}$', "$y'=\\dfrac{" + k + '}{10x}$', "$y'=\\dfrac{" + k + '}{\\ln(10)}$']
-    };
-  });
-
   add('t-product-ln', function (r) {
     var n = r.int(2, 5);
     return {
@@ -103,13 +94,26 @@
     };
   });
 
-  add('t-a-to-x', function (r) {
-    var a = r.pick([2, 3, 5, 7, 10]);
+  add('t-ln-chain-value', function (r) {
+    var x0 = r.int(1, 4), c = r.int(1, 8), u = x0 * x0 + c;
+    need(u !== 2 * x0 && u !== 4 * x0 * x0);
+    var fr = function (p, q) { var a = p, b = q; while (b) { var t = a % b; a = b; b = t; } p /= a; q /= a;
+                               return q === 1 ? String(p) : '\\dfrac{' + p + '}{' + q + '}'; };
     return {
-      prompt: 'Find the derivative of $y=' + a + '^{x}$.',
-      answer: "$y'=" + a + '^{x}\\ln(' + a + ')$',
-      wrong: ["$y'=x\\cdot " + a + '^{x-1}$', "$y'=" + a + '^{x}$', "$y'=\\dfrac{" + a + '^{x}}{\\ln(' + a + ')}$',
-              "$y'=" + a + '^{x}\\ln(x)$']
+      prompt: "Let $f(x)=\\ln\\!\\left(x^{2}+" + c + "\\right)$. Find $f'(" + x0 + ')$.',
+      answer: '$' + fr(2 * x0, u) + '$',
+      wrong: ['$' + fr(1, u) + '$', '$' + 2 * x0 + '$', '$' + fr(1, 2 * x0) + '$', '$' + fr(u, 2 * x0) + '$', '$\\ln(' + u + ')$']
+    };
+  });
+
+  add('t-quotient-exp', function (r) {
+    var k = r.pick([2, 3, 4, 5, -2, -3]), e = ekx(k), dk = (k === -1 ? '-' : N(k)) + e;
+    return {
+      prompt: 'Find the derivative of $y=\\dfrac{' + e + '}{x}$.',
+      answer: "$y'=\\dfrac{x\\cdot " + dk + '-' + e + '\\cdot 1}{x^{2}}$',
+      wrong: ["$y'=\\dfrac{" + e + '\\cdot 1-x\\cdot ' + dk + '}{x^{2}}$', "$y'=" + dk + '$',
+              "$y'=\\dfrac{x\\cdot " + dk + '+' + e + '\\cdot 1}{x^{2}}$', "$y'=\\dfrac{x\\cdot " + dk + '-' + e + '\\cdot 1}{x}$',
+              "$y'=\\dfrac{x\\cdot " + e + '-' + e + '\\cdot 1}{x^{2}}$']
     };
   });
 
