@@ -1,7 +1,8 @@
 /* Review app. Started by boot.js with { root, set, banks, config }.
-   Two views share one saved progress record (per set, in this browser only):
+   Three screens share one saved progress record (per set, in this browser only):
+     home     — Readiness Check card, every section with its progress, and the collapsed "All questions" grid
      check    — Readiness Check: one question per section (+ extras), results as Ready / Review by section
-     practice — every question in the set, with per-section progress, modes and a question map */
+     section  — practice one section: missed first, then not tried, then ones already right */
 (function () {
   'use strict';
   var LET = 'ABCDE';
@@ -30,23 +31,18 @@
     document.body.innerHTML =
       '<div class="wrap">' +
       '  <div class="eyebrow">' + esc(set.course_title || '') + (set.covers ? ' · ' + esc(set.covers) : '') + '</div>' +
-      '  <div class="topRow"><h1>' + esc(set.title) + '</h1><button class="link" id="viewTog"></button></div>' +
+      '  <h1>' + esc(set.title) + '</h1>' +
+      '  <button class="crumb hide" id="toHome">← All sections</button>' +
       '  <div id="checkTop" class="hide"><div class="line"><div class="track"><div class="fill" id="lFill"></div></div><div class="lbl" id="lLbl"></div></div></div>' +
-      '  <div id="pracTop" class="hide">' +
-      '    <div class="sub">Every question in this review. Tap a section to practice just that one. Questions marked “new numbers” change every time.</div>' +
-      '    <div class="prog"><div class="track"><div class="fill" id="pFill"></div><div class="miss" id="pMiss"></div></div>' +
-      '      <div class="txt"><span><b id="pOk">0</b> of <span id="pN">0</span> mastered</span><span id="pMissTxt"></span></div></div>' +
-      '    <div class="secHead"><span>By section</span><button class="link" id="secTog">Hide</button></div>' +
-      '    <div class="secs" id="secs"></div>' +
-      '    <div class="ctl"><div class="seg" id="modes"><button data-mode="order">In order</button><button data-mode="missed">Missed first</button></div>' +
-      '      <button class="tog" id="shuffle">Shuffle</button></div>' +
+      '  <div id="secTop" class="hide">' +
+      '    <div class="secTitle"><h2 id="sName"></h2><span id="sPos"></span></div>' +
+      '    <div class="prog"><div class="track"><div class="fill" id="sFill"></div><div class="miss" id="sMiss"></div></div>' +
+      '      <div class="txt"><span id="sOk"></span><span id="sMissTxt"></span></div></div>' +
       '  </div>' +
+      '  <div id="home" class="hide"></div>' +
       '  <div class="card" id="card"></div>' +
       '  <div class="hint" id="hint">Keys: A–E to answer, Enter or → for next, ← for back</div>' +
-      '  <div id="pracBottom" class="hide">' +
-      '    <details><summary>All questions (green = right last time, red = missed)</summary><div class="map" id="map"></div></details>' +
-      '    <div class="foot"><span>' + Q.length + ' questions</span><button class="link" id="reset">Reset my progress</button></div>' +
-      '  </div>' +
+      '  <div id="secBottom" class="hide"><button class="tog small" id="shuffle"></button></div>' +
       '  <div class="copy">© 2026 Tim Banham. All rights reserved.</div>' +
       '</div>';
     var $ = function (id) { return document.getElementById(id); };
@@ -59,9 +55,8 @@
       s = s || {};
       if (s.quick && !s.check) s.check = s.quick;            // older versions of this page
       if (s.full && !s.practice) s.practice = s.full;
-      delete s.quick; delete s.full;
-      s.view = s.view === 'full' || s.view === 'practice' ? 'practice' : 'check';
-      s.res = s.res || {}; s.mode = s.mode || 'order'; s.shuffle = !!s.shuffle; s.topic = s.topic || '';
+      delete s.quick; delete s.full; delete s.hideSecs; delete s.mode;
+      s.res = s.res || {}; s.shuffle = !!s.shuffle; s.topic = s.topic || '';
       ['check', 'practice'].forEach(function (v) {
         var l = s[v] || {};
         if (!(l.queue || []).every(function (id) { return byId[id]; })) l = {};
@@ -69,11 +64,16 @@
       });
       Object.keys(s.res).forEach(function (id) { if (!byId[id]) delete s.res[id]; });
       if (s.topic && !SECS.some(function (x) { return x.code === s.topic; })) s.topic = '';
+      // reopen mid-check or mid-section where the student left off; otherwise start at home
+      var v = s.view;
+      if (v === 'check' && s.check.started && s.check.pos < s.check.queue.length) s.view = 'check';
+      else if ((v === 'section' || v === 'practice' || v === 'full') && s.topic) s.view = 'section';
+      else s.view = 'home';
       if (!s.id) s.id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);   // anonymous device id
       return s;
     }
     function save() { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {} }
-    function L() { return S[S.view]; }
+    function L() { return S.view === 'check' ? S.check : S.practice; }
 
     // ---------- usage ping (anonymous) ----------
     // Sends small batches: each answer (question, section, right?, seconds) plus active time on the page.
@@ -140,15 +140,26 @@
       return a;
     }
     function idsIn(code) { return Q.filter(function (q) { return !code || q.sec === code; }).map(function (q) { return q.id; }); }
-    function go() { cur = null; answered = null; save(); }
-    function buildPractice() {
-      var ids = idsIn(S.topic), mix = S.shuffle ? shuffled : function (a) { return a; }, queue;
-      if (S.mode === 'missed') {
-        queue = mix(ids.filter(function (i) { return S.res[i] === 'miss'; }))
-          .concat(mix(ids.filter(function (i) { return !S.res[i]; })), mix(ids.filter(function (i) { return S.res[i] === 'ok'; })));
-      } else queue = mix(ids);
-      S.practice = { queue: queue, pos: 0, round: {}, started: true }; go();
+    function tally(ids) {
+      var ok = 0, miss = 0;
+      ids.forEach(function (id) { if (S.res[id] === 'ok') ok++; else if (S.res[id] === 'miss') miss++; });
+      return { n: ids.length, ok: ok, miss: miss };
     }
+    function go() { cur = null; answered = null; save(); }
+    function buildSection(code) {          // missed first, then not tried, then ones already right
+      var ids = idsIn(code), mix = S.shuffle ? shuffled : function (a) { return a; };
+      var queue = mix(ids.filter(function (i) { return S.res[i] === 'miss'; }))
+        .concat(mix(ids.filter(function (i) { return !S.res[i]; })), mix(ids.filter(function (i) { return S.res[i] === 'ok'; })));
+      S.topic = code;
+      S.practice = { queue: queue, pos: 0, round: {}, started: true };
+    }
+    function openSection(code, atId) {
+      var p = S.practice, resume = !atId && S.topic === code && p.queue.length && p.pos < p.queue.length;
+      if (!resume) buildSection(code);
+      if (atId) S.practice.pos = Math.max(0, S.practice.queue.indexOf(atId));
+      S.view = 'section'; go(); draw(); window.scrollTo(0, 0);
+    }
+    function goHome() { S.view = 'home'; go(); draw(); window.scrollTo(0, 0); }
     function choose(ids, taken) {          // missed first, then not tried, then any
       ids = ids.filter(function (i) { return taken.indexOf(i) < 0; });
       var tiers = [ids.filter(function (i) { return S.res[i] === 'miss'; }), ids.filter(function (i) { return !S.res[i]; }), ids];
@@ -164,10 +175,29 @@
       }
       var order = Q.map(function (q) { return q.id; });
       picks.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
-      S.check = { queue: picks, pos: 0, round: {}, started: true, sent: '' }; go();
+      S.check = { queue: picks, pos: 0, round: {}, started: true, sent: '' };
+    }
+    function startCheck() { buildCheck(); S.view = 'check'; go(); draw(); window.scrollTo(0, 0); }
+    function checkDone() { return S.check.started && S.check.queue.length && S.check.pos >= S.check.queue.length; }
+    function reviewCodes() {               // sections marked Review in the last finished check and not yet mastered
+      if (!checkDone()) return [];
+      return readiness().rows.filter(function (x) {
+        if (x.ok) return false;
+        var t = tally(idsIn(x.code)); return t.ok < t.n;
+      }).map(function (x) { return x.code; });
+    }
+    function nextWeak(except) {            // marked Review first, then most to redo, then the earliest section not yet mastered
+      var rev = reviewCodes(), best = null, score = -1;
+      SECS.forEach(function (s, i) {
+        if (s.code === except) return;
+        var t = tally(idsIn(s.code)); if (!t.n || t.ok === t.n) return;
+        var sc = (rev.indexOf(s.code) >= 0 ? 1000 : 0) + t.miss * 10 - i / 100;
+        if (sc > score) { score = sc; best = s; }
+      });
+      return best;
     }
     function current() {
-      var l = L(), key = S.view + ':' + l.pos;
+      var l = L(), key = S.view + ':' + S.topic + ':' + l.pos;
       if (!cur || cur.key !== key) {
         var base = byId[l.queue[l.pos]];
         var q = base.template ? window.Review.makeVersion(base.id, set.avoid) : base;
@@ -179,70 +209,104 @@
 
     // ---------- drawing ----------
     function drawChrome() {
-      var check = S.view === 'check', l = L();
-      show('checkTop', check && S.check.started && S.check.pos < S.check.queue.length);
-      show('pracTop', !check); show('pracBottom', !check);
-      $('viewTog').textContent = check ? 'Practice by section →' : '← ' + CHECK;
-      if (check) {
+      var v = S.view, l = L();
+      show('toHome', v !== 'home');
+      show('home', v === 'home'); show('card', v !== 'home');
+      show('checkTop', v === 'check' && l.pos < l.queue.length);
+      show('secTop', v === 'section'); show('secBottom', v === 'section');
+      if (v === 'check') {
         $('lFill').style.width = (l.queue.length ? 100 * l.pos / l.queue.length : 0) + '%';
-        $('lLbl').textContent = 'Question ' + Math.min(l.pos + 1, l.queue.length) + ' of ' + l.queue.length;
-      } else drawPractice();
+        $('lLbl').textContent = CHECK + ' · question ' + Math.min(l.pos + 1, l.queue.length) + ' of ' + l.queue.length;
+      }
+      if (v === 'section') drawSectionTop();
+      if (v === 'home') drawHome();
     }
 
-    function drawPractice() {
-      var ids = idsIn(''), n = ids.length, ok = 0, miss = 0;
-      ids.forEach(function (id) { if (S.res[id] === 'ok') ok++; else if (S.res[id] === 'miss') miss++; });
-      $('pN').textContent = n; $('pOk').textContent = ok;
-      $('pFill').style.width = (n ? 100 * ok / n : 0) + '%';
-      $('pMiss').style.width = (n ? 100 * miss / n : 0) + '%';
-      $('pMissTxt').textContent = miss ? miss + ' to redo' : (ok === n && n ? 'All mastered' : (n - ok) + ' to go');
-      [].forEach.call($('modes').children, function (b) { b.classList.toggle('on', b.dataset.mode === S.mode); });
+    function drawSectionTop() {
+      var l = S.practice, t = tally(idsIn(S.topic));
+      $('sName').innerHTML = '<b>' + esc(S.topic) + '</b> ' + esc(secName(S.topic));
+      $('sPos').textContent = l.pos < l.queue.length ? 'Question ' + (l.pos + 1) + ' of ' + l.queue.length : 'Done';
+      $('sFill').style.width = (t.n ? 100 * t.ok / t.n : 0) + '%';
+      $('sMiss').style.width = (t.n ? 100 * t.miss / t.n : 0) + '%';
+      $('sOk').innerHTML = '<b>' + t.ok + '</b> of ' + t.n + ' mastered';
+      $('sMissTxt').textContent = t.miss ? t.miss + ' to redo' : (t.ok === t.n ? 'All mastered' : '');
+      $('shuffle').textContent = 'Shuffle order: ' + (S.shuffle ? 'on' : 'off');
       $('shuffle').classList.toggle('on', S.shuffle);
+    }
 
-      var box = $('secs');
-      box.classList.toggle('hide', !!S.hideSecs); $('secTog').textContent = S.hideSecs ? 'Show' : 'Hide';
-      box.innerHTML = '';
+    function drawHome() {
+      var box = $('home'), c = S.check, all = tally(idsIn('')), rev = reviewCodes(), chk;
+      if (!c.started || !c.queue.length) {
+        chk = '<p>' + CHECK_N + ' questions, one from each section. You’ll see which sections you’re ready for and which to review. Most take a minute or two.</p>' +
+              '<button class="go" id="chkGo">Begin the check</button>';
+      } else if (c.pos < c.queue.length) {
+        chk = '<p>You stopped at question ' + (c.pos + 1) + ' of ' + c.queue.length + '.</p>' +
+              '<button class="go" id="chkGo">Continue the check</button><p class="alt"><button class="link" id="chkNew">Start over</button></p>';
+      } else {
+        var st = readiness();
+        chk = '<p>Last check: ready for ' + st.ready + ' of ' + st.rows.length + ' sections.' + (rev.length ? ' Sections to review are marked below.' : '') + '</p>' +
+              '<button class="go" id="chkGo">Take another check</button><p class="alt"><button class="link" id="chkRes">See last results</button></p>';
+      }
+      box.innerHTML =
+        '<div class="card checkCard"><h2>' + esc(CHECK) + '</h2>' + chk + '</div>' +
+        '<div class="secHead"><h3>Practice by section</h3><span>' + all.ok + ' of ' + all.n + ' mastered</span></div>' +
+        '<div class="secs" id="secs"></div>' +
+        '<details id="allQ"' + (S.mapOpen ? ' open' : '') + '><summary>All ' + Q.length + ' questions (green = right last time, red = missed)</summary><div class="map" id="map"></div></details>' +
+        '<div class="foot"><span>Progress is saved in this browser.</span><button class="link" id="reset">Reset my progress</button></div>';
+
+      var secs = $('secs');
       SECS.forEach(function (s) {
         var ids = idsIn(s.code); if (!ids.length) return;
-        var ok = ids.filter(function (i) { return S.res[i] === 'ok'; }).length, miss = ids.filter(function (i) { return S.res[i] === 'miss'; }).length;
+        var t = tally(ids), done = t.ok === t.n, r = rev.indexOf(s.code) >= 0;
         var b = document.createElement('button');
-        b.className = (S.topic === s.code ? 'on' : '') + (ok === ids.length ? ' all-ok' : '');
-        b.innerHTML = '<span class="nm"><b>' + esc(s.code) + '</b>' + esc(s.name) + '</span><span class="bar"><i class="g" style="width:' + 100 * ok / ids.length +
-          '%"></i><i class="r" style="width:' + 100 * miss / ids.length + '%"></i></span><span class="ct">' + ok + '/' + ids.length + '</span>';
-        b.onclick = function () { S.topic = S.topic === s.code ? '' : s.code; buildPractice(); draw(); };
-        box.appendChild(b);
+        b.className = 'sec' + (done ? ' all-ok' : '') + (r ? ' rev' : '');
+        b.innerHTML = '<span class="nm"><b>' + esc(s.code) + '</b>' + esc(s.name) + (r ? '<span class="pill miss">Review</span>' : '') + '</span>' +
+          '<span class="meter"><span class="bar"><i class="g" style="width:' + 100 * t.ok / t.n + '%"></i><i class="r" style="width:' + 100 * t.miss / t.n + '%"></i></span>' +
+          '<span class="ct' + (t.miss ? ' bad' : '') + '">' + (done ? '✓ ' + t.n + ' of ' + t.n : t.miss ? t.miss + ' to redo' : t.ok + ' of ' + t.n) + '</span></span>' +
+          '<span class="chev">›</span>';
+        b.onclick = function () { openSection(s.code); };
+        secs.appendChild(b);
       });
 
-      var map = $('map'), l = S.practice; map.innerHTML = '';
-      l.queue.forEach(function (id, i) {
+      var map = $('map');
+      Q.forEach(function (q, i) {
         var b = document.createElement('button');
         b.textContent = i + 1;
-        b.className = (S.res[id] || '') + (i === l.pos ? ' cur' : '');
-        b.title = byId[id].sec + ' ' + secName(byId[id].sec);
-        b.onclick = function () { l.pos = i; go(); draw(); };
+        b.className = S.res[q.id] || '';
+        b.title = q.sec + ' ' + secName(q.sec);
+        b.onclick = function () { openSection(q.sec, q.id); };
         map.appendChild(b);
       });
+      $('allQ').ontoggle = function () { S.mapOpen = $('allQ').open; save(); };
+
+      $('chkGo').onclick = function () { if (c.started && c.queue.length && c.pos < c.queue.length) { S.view = 'check'; go(); draw(); window.scrollTo(0, 0); } else startCheck(); };
+      if ($('chkNew')) $('chkNew').onclick = startCheck;
+      if ($('chkRes')) $('chkRes').onclick = function () { S.view = 'check'; go(); draw(); window.scrollTo(0, 0); };
+      $('reset').onclick = function () {
+        if (!$('reset').dataset.sure) { $('reset').dataset.sure = 1; $('reset').textContent = 'Tap again to erase progress'; return; }
+        S.res = {}; S.topic = ''; S.check = { queue: [], pos: 0, round: {}, started: false, sent: '' };
+        S.practice = { queue: [], pos: 0, round: {}, started: false }; go(); draw();
+      };
     }
 
     function draw() {
       drawChrome();
+      if (S.view === 'home') { show('hint', false); return; }
       var card = $('card'), l = L();
-      var onQuestion = !(S.view === 'check' && !S.check.started) && l.pos < l.queue.length;
-      show('hint', onQuestion);
-      if (S.view === 'check' && !S.check.started) return drawStart(card);
+      show('hint', l.pos < l.queue.length);
       if (l.pos >= l.queue.length) return S.view === 'check' ? drawResults(card) : drawDone(card);
 
-      var q = current(), prev = S.res[q.id];
+      var q = current(), prev = S.res[q.id], sec = S.view === 'section';
       card.innerHTML = '';
       var meta = document.createElement('div'); meta.className = 'meta';
       var left = document.createElement('span');
-      left.textContent = (S.view === 'practice' ? (l.pos + 1) + ' of ' + l.queue.length + ' · ' : '') + q.sec + ' ' + secName(q.sec);
+      left.textContent = sec ? '' : q.sec + ' ' + secName(q.sec);
       meta.appendChild(left);
       var pills = document.createElement('span'); pills.className = 'pills';
-      if (q.template && S.view === 'practice') pills.innerHTML += '<span class="pill new">new numbers</span>';
-      if (prev && S.view === 'practice') pills.innerHTML += '<span class="pill ' + prev + '">' + (prev === 'ok' ? 'got it last time' : 'missed last time') + '</span>';
+      if (q.template && sec) pills.innerHTML += '<span class="pill new">new numbers</span>';
+      if (prev && sec) pills.innerHTML += '<span class="pill ' + prev + '">' + (prev === 'ok' ? 'got it last time' : 'missed last time') + '</span>';
       meta.appendChild(pills);
-      card.appendChild(meta);
+      if (left.textContent || pills.innerHTML) card.appendChild(meta);
 
       var p = document.createElement('div'); p.className = 'prompt'; tex(p, q.prompt); card.appendChild(p);
       var grid = document.createElement('div'); grid.className = 'grid';
@@ -259,7 +323,7 @@
 
       var v = document.createElement('div'); v.className = 'verdict'; v.id = 'verdict'; card.appendChild(v);
       var nav = document.createElement('div'); nav.className = 'nav';
-      nav.innerHTML = '<button id="back">← Back</button>' + (q.template && S.view === 'practice' ? '<button id="again1" class="hide">↻ New numbers</button>' : '') +
+      nav.innerHTML = '<button id="back">← Back</button>' + (q.template && sec ? '<button id="again1" class="hide">↻ New numbers</button>' : '') +
                       '<button id="next" class="primary">Skip →</button>';
       card.appendChild(nav);
       $('back').disabled = l.pos === 0;
@@ -285,19 +349,20 @@
     }
 
     function pick(Ltr) {
+      if (S.view === 'home') return;
       var l = L();
-      if (answered || l.pos >= l.queue.length || (S.view === 'check' && !S.check.started)) return;
+      if (answered || l.pos >= l.queue.length) return;
       var q = current();
       if (!q.choices[LET.indexOf(Ltr)]) return;
       answered = Ltr;
       S.res[q.id] = Ltr === q.key ? 'ok' : 'miss';
       l.round[q.id] = S.res[q.id];
       record(q, Ltr === q.key);
-      save(); if (S.view === 'practice') drawPractice(); reveal(q, Ltr);
+      save(); if (S.view === 'section') drawSectionTop(); reveal(q, Ltr);
     }
     function next() {
+      if (S.view === 'home') return;
       var l = L();
-      if (S.view === 'check' && !S.check.started) return;
       if (l.pos >= l.queue.length) return;
       l.pos++; go(); draw(); window.scrollTo(0, 0);
       if (S.view === 'check' && l.pos === l.queue.length) {
@@ -305,20 +370,7 @@
         ping('check-done', { score: st.right + '/' + l.queue.length, ready: st.ready + '/' + st.rows.length });
       }
     }
-    function back() { var l = L(); if (l.pos > 0) { l.pos--; go(); draw(); } }
-
-    function drawStart(card) {
-      var ok = Q.filter(function (q) { return S.res[q.id] === 'ok'; }).length;
-      card.innerHTML = '<div class="start"><h2>' + esc(CHECK) + '</h2>' +
-        '<p>' + CHECK_N + ' questions, one from each section below. You’ll see which sections you’re ready for and which to review. ' +
-        'Most questions take a minute or two.</p>' +
-        '<div class="covers">' + SECS.map(function (s) { return '<b>' + esc(s.code) + '</b><span>' + esc(s.name) + '</span>'; }).join('') + '</div>' +
-        '<button class="go" id="startBtn">Begin</button>' +
-        '<p class="alt"><button class="link" id="toPrac">Or practice all ' + Q.length + ' questions by section</button></p>' +
-        (ok ? '<p class="small">' + ok + ' of ' + Q.length + ' questions mastered so far on this device.</p>' : '') + '</div>';
-      $('startBtn').onclick = function () { buildCheck(); draw(); };
-      $('toPrac').onclick = function () { setView('practice'); };
-    }
+    function back() { if (S.view === 'home') return; var l = L(); if (l.pos > 0) { l.pos--; go(); draw(); } }
 
     function readiness() {
       var l = S.check, r = l.round, by = {};
@@ -333,21 +385,21 @@
     function drawResults(card) {
       var st = readiness(), todo = st.rows.length - st.ready;
       var line = todo === 0 ? 'You’re ready for every section. Nice work.'
-        : 'You’re ready for ' + st.ready + ' of ' + st.rows.length + ' sections. Practice the ' + (todo === 1 ? 'one' : todo) + ' marked Review.';
+        : 'You’re ready for ' + st.ready + ' of ' + st.rows.length + ' sections. Tap Review to practice ' + (todo === 1 ? 'that section' : 'a section') + '.';
       card.innerHTML = '<div class="results"><h2>Your results</h2><p>' + line + '</p><div class="ready">' +
         st.rows.map(function (x) {
           return '<div class="row ' + (x.ok ? 'ok' : 'miss') + '"><b>' + esc(x.code) + '</b><span>' + esc(x.name) + '</span>' +
             '<span class="st">' + (x.ok ? 'Ready' : '<button data-sec="' + esc(x.code) + '">Review →</button>') + '</span></div>';
         }).join('') + '</div>' +
         sendBox(st) +
-        '<div class="nav col">' + (todo ? '<button class="primary" id="toPrac2">Practice by section</button>' : '') +
-        '<button id="again"' + (todo ? '' : ' class="primary"') + '>Take another check</button></div>' +
+        '<div class="nav col"><button class="primary" id="toSecs">' + (todo ? 'See all sections' : 'Back to all sections') + '</button>' +
+        '<button id="again">Take another check</button></div>' +
         '<p class="small">Another check picks different questions, favoring the ones you missed.</p></div>';
       [].forEach.call(card.querySelectorAll('[data-sec]'), function (b) {
-        b.onclick = function () { S.topic = b.dataset.sec; S.mode = 'missed'; S.view = 'practice'; buildPractice(); draw(); window.scrollTo(0, 0); };
+        b.onclick = function () { buildSection(b.dataset.sec); openSection(b.dataset.sec); };
       });
-      if ($('toPrac2')) $('toPrac2').onclick = function () { S.mode = 'missed'; S.topic = ''; S.view = 'practice'; buildPractice(); draw(); window.scrollTo(0, 0); };
-      $('again').onclick = function () { buildCheck(); draw(); };
+      $('toSecs').onclick = goHome;
+      $('again').onclick = startCheck;
       wireSend(st);
     }
 
@@ -386,32 +438,23 @@
 
     function drawDone(card) {
       var l = S.practice, r = l.round, ids = Object.keys(r), right = ids.filter(function (i) { return r[i] === 'ok'; }).length;
-      var all = idsIn(S.topic), ok = all.filter(function (id) { return S.res[id] === 'ok'; }).length, miss = all.filter(function (id) { return S.res[id] === 'miss'; }).length;
-      card.innerHTML = '<div class="done"><div class="sub">End of the list</div>' +
+      var t = tally(idsIn(S.topic)), nx = nextWeak(S.topic);
+      card.innerHTML = '<div class="done"><div class="sub">' + esc(S.topic + ' ' + secName(S.topic)) + ' · end of section</div>' +
         '<div class="big">' + right + ' / ' + ids.length + '</div>' +
-        '<p>right on the first try this round.<br>' + ok + ' of ' + all.length + ' mastered' + (S.topic ? ' in ' + esc(S.topic) : ' overall') + '.</p>' +
-        '<div class="nav">' + (miss ? '<button class="primary" id="again">Redo the ' + miss + ' missed</button>' : '') +
-        '<button id="restart"' + (miss ? '' : ' class="primary"') + '>Go through all again</button></div></div>';
-      if (miss) $('again').onclick = function () { S.mode = 'missed'; buildPractice(); S.practice.queue = S.practice.queue.slice(0, miss); save(); draw(); };
-      $('restart').onclick = function () { buildPractice(); draw(); };
-    }
-
-    function setView(v) {
-      S.view = v;
-      if (v === 'practice' && !S.practice.queue.length) buildPractice(); else go();
-      draw(); window.scrollTo(0, 0);
+        '<p>right this time through.<br>' + t.ok + ' of ' + t.n + ' mastered in this section.</p>' +
+        '<div class="nav col">' +
+        (t.miss ? '<button class="primary" id="redo">Redo the ' + t.miss + ' missed</button>' : '') +
+        (nx ? '<button' + (t.miss ? '' : ' class="primary"') + ' id="nextSec">Next weak section: ' + esc(nx.code + ' ' + nx.name) + ' →</button>' : '') +
+        '<button' + (t.miss || nx ? '' : ' class="primary"') + ' id="toSecs">Back to all sections</button></div>' +
+        (!nx && !t.miss ? '<p class="small">Every question mastered. Nice work.</p>' : '') + '</div>';
+      if ($('redo')) $('redo').onclick = function () { buildSection(S.topic); S.practice.queue = S.practice.queue.slice(0, t.miss); go(); draw(); window.scrollTo(0, 0); };
+      if ($('nextSec')) $('nextSec').onclick = function () { buildSection(nx.code); openSection(nx.code); };
+      $('toSecs').onclick = goHome;
     }
 
     // ---------- controls ----------
-    $('viewTog').onclick = function () { setView(S.view === 'check' ? 'practice' : 'check'); };
-    [].forEach.call($('modes').children, function (b) { b.onclick = function () { S.mode = b.dataset.mode; buildPractice(); draw(); }; });
-    $('shuffle').onclick = function () { S.shuffle = !S.shuffle; buildPractice(); draw(); };
-    $('secTog').onclick = function () { S.hideSecs = !S.hideSecs; save(); drawPractice(); };
-    $('reset').onclick = function () {
-      if (!$('reset').dataset.sure) { $('reset').dataset.sure = 1; $('reset').textContent = 'Tap again to erase progress'; return; }
-      S.res = {}; S.check = { queue: [], pos: 0, round: {}, started: false }; buildPractice(); draw();
-      delete $('reset').dataset.sure; $('reset').textContent = 'Reset my progress';
-    };
+    $('toHome').onclick = goHome;
+    $('shuffle').onclick = function () { S.shuffle = !S.shuffle; buildSection(S.topic); go(); draw(); };
     document.addEventListener('keydown', function (e) {
       if (e.metaKey || e.ctrlKey || e.altKey || /^(SELECT|SUMMARY|INPUT)$/.test(e.target.tagName)) return;
       var k = e.key.toUpperCase();
@@ -421,8 +464,8 @@
     });
 
     S = load();
-    if (S.practice.queue.length && S.practice.queue.length !== idsIn(S.topic).length) S.practice = { queue: [], pos: 0, round: {} };
-    if (!S.practice.queue.length) { var v = S.view; buildPractice(); S.view = v; }
+    if (S.practice.queue.length && S.practice.queue.length > idsIn(S.topic).length) S.practice = { queue: [], pos: 0, round: {}, started: false };
+    if (S.view === 'section' && !S.practice.queue.length) buildSection(S.topic);
     save(); draw();
     ping('open');
   }
