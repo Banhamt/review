@@ -42,11 +42,12 @@
   add('t-ln-chain', function (r) {
     var n = r.int(2, 4), a = r.pick([1, 2, 3]), b = r.nz(-6, 6);
     var u = poly([a].concat(zeros(n - 2), [b, 0])), du = poly([n * a].concat(zeros(n - 2), [b]));
+    var one = function (d) { return '\\dfrac{1}{' + d + '}'; };
     return {
       prompt: 'Find the derivative of $y=\\ln\\!\\left(' + u + '\\right)$.',
-      answer: "$y'=\\dfrac{" + du + '}{' + u + '}$',
-      wrong: ["$y'=\\dfrac{1}{" + u + '}$', "$y'=\\dfrac{1}{" + du + '}$', "$y'=\\dfrac{" + u + '}{' + du + '}$',
-              "$y'=\\ln\\!\\left(" + du + '\\right)$', "$y'=\\dfrac{" + du + '}{x}$']
+      answer: "$y'=" + one(u) + '\\cdot(' + du + ')$',
+      wrong: ["$y'=" + one(u) + '$', "$y'=" + one(du) + '$', "$y'=" + one('x') + '\\cdot(' + du + ')$',
+              "$y'=\\ln\\!\\left(" + du + '\\right)$', "$y'=" + one(du) + '\\cdot(' + u + ')$']
     };
   });
 
@@ -62,24 +63,26 @@
   });
 
   add('t-product-ln', function (r) {
-    var n = r.int(2, 5);
+    var n = r.int(2, 5), d = n + xp(n - 1);          // f = x^n, g = ln x;  f'g + fg'
     return {
       prompt: 'Find the derivative of $y=' + xp(n) + '\\ln x$.',
-      answer: "$y'=" + n + xp(n - 1) + '\\ln x+' + xp(n) + '\\cdot\\dfrac{1}{x}$',
-      wrong: ["$y'=" + n + xp(n - 1) + '\\cdot\\dfrac{1}{x}$', "$y'=" + n + xp(n - 1) + '\\ln x$',
-              "$y'=" + n + xp(n - 1) + '\\ln x+\\dfrac{1}{x}$', "$y'=" + n + xp(n - 1) + '+\\dfrac{1}{x}$',
-              "$y'=" + xp(n) + '\\cdot\\dfrac{1}{x}$']
+      answer: "$y'=" + d + '\\cdot\\ln x+' + xp(n) + '\\cdot\\dfrac{1}{x}$',
+      wrong: ["$y'=" + d + '\\cdot\\dfrac{1}{x}$', "$y'=" + d + '\\cdot\\ln x$',
+              "$y'=" + d + '\\cdot\\ln x+\\dfrac{1}{x}$', "$y'=" + d + '+\\dfrac{1}{x}$',
+              "$y'=" + d + '\\cdot\\ln x-' + xp(n) + '\\cdot\\dfrac{1}{x}$']
     };
   });
 
   add('t-product-exp', function (r) {
-    var n = r.int(2, 4), k = r.pick([2, 3, 4, 5, -2, -3]), e = ekx(k);
+    var n = r.int(2, 4), k = r.pick([2, 3, 4, 5, -2, -3]), e = ekx(k), d = n + xp(n - 1);   // f'g + fg'
+    var ke = k < 0 ? '\\left(' + N(k) + e + '\\right)' : N(k) + e;
     return {
       prompt: 'Find the derivative of $y=' + xp(n) + e + '$.',
-      answer: "$y'=" + n + xp(n - 1) + e + (k < 0 ? '-' + (-k) : '+' + k) + xp(n) + e + '$',
-      wrong: ["$y'=" + n + xp(n - 1) + e + '$', "$y'=" + n * k + xp(n - 1) + e + '$',
-              "$y'=" + n + xp(n - 1) + e + '+' + xp(n) + e + '$', "$y'=" + (k < 0 ? '-' + -k : k) + xp(n) + e + '$',
-              "$y'=" + n + xp(n - 1) + e + '+' + xp(n) + ekx(k - 1) + '$']
+      answer: "$y'=" + d + '\\cdot ' + e + '+' + xp(n) + '\\cdot ' + ke + '$',
+      wrong: ["$y'=" + d + '\\cdot ' + e + '$', "$y'=" + d + '\\cdot ' + ke + '$',
+              "$y'=" + d + '\\cdot ' + e + '+' + xp(n) + '\\cdot ' + e + '$',
+              "$y'=" + d + '\\cdot ' + e + '-' + xp(n) + '\\cdot ' + ke + '$',
+              "$y'=" + d + '\\cdot ' + e + '+' + xp(n) + '\\cdot ' + ekx(k - 1) + '$']
     };
   });
 
@@ -88,9 +91,9 @@
     var u = poly([a, b, 0]), du = poly([2 * a, b]);
     return {
       prompt: 'Find the derivative of $y=e^{' + u + '}$.',
-      answer: "$y'=(" + du + ')\\,e^{' + u + '}$',
-      wrong: ["$y'=e^{" + u + '}$', "$y'=(" + u + ')\\,e^{' + poly([a, b, -1]) + '}$', "$y'=(" + du + ')\\,e^{' + du + '}$',
-              "$y'=e^{" + du + '}$']
+      answer: "$y'=e^{" + u + '}\\cdot(' + du + ')$',
+      wrong: ["$y'=e^{" + u + '}$', "$y'=e^{" + du + '}\\cdot(' + du + ')$', "$y'=e^{" + du + '}$',
+              "$y'=e^{" + u + '}\\cdot(' + u + ')$']
     };
   });
 
@@ -107,7 +110,8 @@
   });
 
   add('t-quotient-exp', function (r) {
-    var k = r.pick([2, 3, 4, 5, -2, -3]), e = ekx(k), dk = (k === -1 ? '-' : N(k)) + e;
+    var k = r.pick([2, 3, 4, 5, -2, -3]), e = ekx(k);            // (g f' - f g') / g^2, g = x
+    var dk = k < 0 ? '\\left(' + N(k) + e + '\\right)' : N(k) + e;
     return {
       prompt: 'Find the derivative of $y=\\dfrac{' + e + '}{x}$.',
       answer: "$y'=\\dfrac{x\\cdot " + dk + '-' + e + '\\cdot 1}{x^{2}}$',
