@@ -113,14 +113,22 @@
 
     // ---------- math + graphs ----------
     function tex(el, text) {
-      el.textContent = '';                 // **word** -> bold; everything else stays plain text (no HTML parsing)
-      String(text || '').split(/\*\*([^*]+?)\*\*/).forEach(function (part, i) {
-        if (!part) return;
-        if (i % 2) { var b = document.createElement('b'); b.textContent = part; el.appendChild(b); }
-        else el.appendChild(document.createTextNode(part));
+      // Plain text only (no HTML parsing). Math $…$ (may contain \$) is left for KaTeX; **word** -> bold;
+      // \$ outside math -> a literal $ in a span KaTeX skips, so it can't pair up with other dollar signs.
+      el.textContent = '';
+      var pieces = String(text || '').split(/(\$\$[\s\S]*?\$\$|\$(?:\\[\s\S]|[^$\\])*\$|\\\$)/);
+      pieces.forEach(function (seg, j) {
+        if (!seg) return;
+        if (j % 2 && seg === '\\$') { var u = document.createElement('span'); u.className = 'usd'; u.textContent = '$'; el.appendChild(u); return; }
+        if (j % 2) { el.appendChild(document.createTextNode(seg)); return; }
+        seg.split(/\*\*([^*]+?)\*\*/).forEach(function (part, i) {
+          if (!part) return;
+          if (i % 2) { var b = document.createElement('b'); b.textContent = part; el.appendChild(b); }
+          else el.appendChild(document.createTextNode(part));
+        });
       });
       if (text && window.renderQuickGraphs) renderQuickGraphs(el);
-      if (text && window.renderMathInElement) renderMathInElement(el, { delimiters: [
+      if (text && window.renderMathInElement) renderMathInElement(el, { ignoredClasses: ['usd'], delimiters: [
         { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false },
         { left: '\\(', right: '\\)', display: false }, { left: '\\[', right: '\\]', display: true } ], throwOnError: false });
     }
