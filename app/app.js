@@ -96,10 +96,17 @@
       for (var k in extra || {}) body[k] = extra[k];
       buf = []; active = 0;
       var data = JSON.stringify(body);
+      post(data);
+    }
+    // A plain fetch (keepalive lets it finish after the page closes). Safari on iPhone/iPad can silently drop
+    // sendBeacon to Google Apps Script, so the beacon is only a fallback if fetch is missing or fails.
+    function post(data) {
+      var beacon = function () { try { if (navigator.sendBeacon) navigator.sendBeacon(PING, data); } catch (e) {} };
       try {
-        if (navigator.sendBeacon && navigator.sendBeacon(PING, data)) return;
-        fetch(PING, { method: 'POST', mode: 'no-cors', keepalive: true, body: data });
-      } catch (e) {}
+        if (!window.fetch) return beacon();
+        fetch(PING, { method: 'POST', mode: 'no-cors', keepalive: data.length < 60000, headers: { 'Content-Type': 'text/plain' }, body: data })
+          .catch(beacon);
+      } catch (e) { beacon(); }
     }
     function flush() { tick(); if (buf.length || active >= 5) ping('answers'); }
     function record(q, right) {
@@ -159,7 +166,7 @@
       if (atId) S.practice.pos = Math.max(0, S.practice.queue.indexOf(atId));
       S.view = 'section'; go(); draw(); window.scrollTo(0, 0);
     }
-    function goHome() { S.view = 'home'; go(); draw(); window.scrollTo(0, 0); }
+    function goHome() { flush(); S.view = 'home'; go(); draw(); window.scrollTo(0, 0); }
     function choose(ids, taken) {          // missed first, then not tried, then any
       ids = ids.filter(function (i) { return taken.indexOf(i) < 0; });
       var tiers = [ids.filter(function (i) { return S.res[i] === 'miss'; }), ids.filter(function (i) { return !S.res[i]; }), ids];
@@ -428,10 +435,7 @@
           score: st.right + '/' + S.check.queue.length, ready: st.ready + '/' + st.rows.length,
           review: st.rows.filter(function (x) { return !x.ok; }).map(function (x) { return x.code; }).join(', '),
           ok: ok, of: Q.length, minutes: Math.round((S.activeSec || 0) / 6) / 10 };
-        try {
-          var data = JSON.stringify(body);
-          if (!(navigator.sendBeacon && navigator.sendBeacon(PING, data))) fetch(PING, { method: 'POST', mode: 'no-cors', body: data });
-        } catch (e) {}
+        post(JSON.stringify(body));
         S.name = name; S.check.sent = name; save(); draw();
       };
     }
